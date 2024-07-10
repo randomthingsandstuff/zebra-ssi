@@ -206,6 +206,8 @@ class SSITransport:
                 raise ValueError("Change in opcode in the stream")
             packets.append(packet)
             if packet.status & PKT_STATUS_CONTINUATION == 0:
+                if packet.opcode not in SSITransport.opcode_decoders:
+                    continue
                 msg = SSITransport.opcode_decoders[packet.opcode].decode_from_packets(packets)
                 yield msg
                 packets = []
