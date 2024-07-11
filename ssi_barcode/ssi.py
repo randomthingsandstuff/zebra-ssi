@@ -3,7 +3,6 @@ import struct
 from ssi_barcode import util
 from collections import defaultdict
 
-
 class SSIScanner:
     def __init__(self, device):
         self.device = device
@@ -19,7 +18,7 @@ class SSIScanner:
 
     def run(self):
         with serial.Serial(self.device, 9600, rtscts=True) as serconn:
-            t = ssi.SSITransport(ser)
+            t = SSITransport(serconn)
             for msg in t.run():
                 self.handle_msg(msg)
 
@@ -29,6 +28,7 @@ class SigScan:
     IMAGE_FORMAT_JPEG = 0x01
     IMAGE_FORMAT_BMP = 0x03
     IMAGE_FORMAT_TIFF = 0x04
+
     def __init__(self):
         self.image_format = None
         self.type = None
@@ -50,11 +50,10 @@ class SigScan:
         #    raise ValueError("data too long")
         return msg
 
-        
 
 class ScanMessage:
     OP_CODE = 0xf3
-    
+
     def __init__(self):
         self.symbology = None
         self.aim_code = None
@@ -99,12 +98,11 @@ class ScanMessage:
         return msg
 
 
-
-
 MSG_SOURCE_DEVICE = 0
 MSG_SOURCE_HOST = 4
 
 PKT_STATUS_CONTINUATION = 2
+
 
 class Packet:
     LENGTH_SIZE = 1
@@ -127,41 +125,41 @@ class Packet:
         super().__setattr__(name, value)
         if name != '_encoded':
             super().__setattr__('_encoded', None)
-    
+
     def xxd_dump(self):
         return util.xxd_format(self._encoded)
 
     def decode(self, raw_data):
-            offs = 0
+        offs = 0
 
-            self.length = raw_data[0]
-            data_length = self.length - self.LENGTH_SIZE - self.HEADER_SIZE
-            offs += self.LENGTH_SIZE
+        self.length = raw_data[0]
+        data_length = self.length - self.LENGTH_SIZE - self.HEADER_SIZE
+        offs += self.LENGTH_SIZE
 
-            self.opcode = raw_data[offs]
-            offs += self.OPCODE_SIZE
+        self.opcode = raw_data[offs]
+        offs += self.OPCODE_SIZE
 
-            self.msg_source = raw_data[offs]
-            offs += self.MSG_SRC_SIZE
+        self.msg_source = raw_data[offs]
+        offs += self.MSG_SRC_SIZE
 
-            self.status = raw_data[offs]
-            offs += self.STATUS_SIZE
+        self.status = raw_data[offs]
+        offs += self.STATUS_SIZE
 
-            self.data = raw_data[offs:offs + data_length]
-            offs += data_length
+        self.data = raw_data[offs:offs + data_length]
+        offs += data_length
 
-            self.csum = raw_data[offs:]
-            #print("length: %s, opcode: %s, src: %s, status: %s, data: %s, csum: %s" \
-            #        % (hex(self.length), self.opcode.hex(), self.msg_source.hex(), self.status.hex(), \
-            #        self.data.hex(), self.csum.hex())) 
-            calculated_csum = calc_csum(raw_data[:-2])
-            print(calculated_csum.hex())
-            if calculated_csum == self.csum:
-                print("good checksum, send an ACK")
-                self._encoded = raw_data
-            else:
-                print("bad horrible nogood checksum. send a NACK")
-                raise ValueError("Bad checksum")
+        self.csum = raw_data[offs:]
+        #print("length: %s, opcode: %s, src: %s, status: %s, data: %s, csum: %s" \
+        #        % (hex(self.length), self.opcode.hex(), self.msg_source.hex(), self.status.hex(), \
+        #        self.data.hex(), self.csum.hex()))
+        calculated_csum = calc_csum(raw_data[:-2])
+        print(calculated_csum.hex())
+        if calculated_csum == self.csum:
+            print("good checksum, send an ACK")
+            self._encoded = raw_data
+        else:
+            print("bad horrible nogood checksum. send a NACK")
+            raise ValueError("Bad checksum")
 
 
 class SSITransport:
@@ -178,23 +176,22 @@ class SSITransport:
         self.serialdev = serialdev
 
     def _get_packet(self):
-            raw_data = self.serialdev.read(self.LENGTH_SIZE)
-            length = raw_data[0]
-            if length < 4:
-                raise ValueError("Bad lenght received: %d", length)
+        raw_data = self.serialdev.read(self.LENGTH_SIZE)
+        length = raw_data[0]
+        if length < 4:
+            raise ValueError("Bad lenght received: %d", length)
 
-            raw_data += self.serialdev.read(length - self.LENGTH_SIZE + self.CSUM_SIZE)
-            packet = Packet()
+        raw_data += self.serialdev.read(length - self.LENGTH_SIZE + self.CSUM_SIZE)
+        packet = Packet()
 
-            try: 
-                packet.decode(raw_data)
-                print("_get_packet good checksum, send an ACK")
-                self._send_ack()
-            except ValueError as e:
-                #self._send_nack()
-                return None 
-            return packet
-
+        try:
+            packet.decode(raw_data)
+            print("_get_packet good checksum, send an ACK")
+            self._send_ack()
+        except ValueError as e:
+            #self._send_nack()
+            return None
+        return packet
 
     def run(self):
         packets = []
@@ -212,12 +209,10 @@ class SSITransport:
                 yield msg
                 packets = []
 
-
     def _send_ack(self):
         data = b'\x04\xd0\x04\x00'
         data = data + calc_csum(data)
         self.serialdev.write(data)
-
 
 
 class SSI_PDU:
@@ -234,7 +229,6 @@ class SSI_PDU:
         pass
 
 
-
 class CMD_ACK:
     OPCODE = b'0xd0'
 
@@ -242,20 +236,18 @@ class CMD_ACK:
 def calc_csum(data: bytes) -> bytes:
     # Sum all the bytes
     total = sum(data)
-    
+
     # Limit the total to 16 bits
     total = total & 0xFFFF
-    
+
     # Take the one's complement (invert all the bits)
     ones_complement = ~total & 0xFFFF
-    
+
     # Add one to get the two's complement
     twos_complement = (ones_complement + 1) & 0xFFFF
-    
+
     # Convert the result to 2 bytes in big-endian format
     checksum_bytes = struct.pack('>H', twos_complement)
-    
+
     return checksum_bytes
-
-
 
