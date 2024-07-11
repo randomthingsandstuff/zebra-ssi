@@ -1,6 +1,5 @@
-from tkinter import *
-from tkinter import font
-from tkinter import ttk
+import tkinter as tk
+from tkinter import font as tkfont
 from PIL import Image, ImageTk
 from ssi_barcode import ssi
 import customtkinter as ctk
@@ -15,90 +14,104 @@ value = None
 class ReadOnlyTextbox(ctk.CTkTextbox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.configure(state=DISABLED)
+        self.configure(state="disabled")
 
     def update(self, text):
-        self.configure(state=NORMAL)
+        self.configure(state="normal")
         self.delete("0.0", "end")
         self.insert("end", text)
-        self.configure(state=DISABLED)
+        self.configure(state="disabled")
 
 
 class CounterThread(threading.Thread):
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
 
     def run(self):
         global value
-        global root
         while True:
             time.sleep(1)
             mtx.acquire()
-            print("acquired mutex")
             value += 1
             mtx.release()
-            root.event_generate('<<ValueEvent>>')
+            self.root.event_generate("<<ValueEvent>>")
 
 
 class BarcodeThread(threading.Thread):
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+
     def run(self):
         global value
-        global root
-
         with serial.Serial('/dev/ttyACM0', 9600, rtscts=True) as ser:
             scanner = ssi.SSITransport(ser)
             for packet in scanner.run():
                 mtx.acquire()
                 value = packet
                 mtx.release()
-                root.event_generate('<<ValueEvent>>')
+                self.root.event_generate("<<ValueEvent>>")
 
 
+class GUI(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.geometry("640x480")
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        self.frm = ctk.CTkFrame(self)
+        self.frm.grid(row=0, column=0, sticky="nsew")
+        self.frm.grid_columnconfigure(0, weight=1)
+        self.frm.grid_rowconfigure(0, weight=1)
+
+        self.label = ctk.CTkLabel(self.frm, text="")
+        self.label.grid(column=0, row=0)
+
+        self.textbox = ReadOnlyTextbox(self.frm)
+        self.textbox_font = ctk.CTkFont(family="monospace")
+        self.textbox.grid(column=0, row=0, sticky='NESW')
+        self.textbox.configure(state="disabled", font=self.textbox_font)
+
+        self.img_frame = ctk.CTkFrame(self.frm)
+        self.img_frame.grid(column=0, row=1)
+        self.img_label = ctk.CTkLabel(self.img_frame, text="")
+        self.img_label.grid(column=0, row=0, sticky="NESW")
+
+        self.button = ctk.CTkButton(self.frm, text="Quit", command=self.destroy)
+        self.button.grid(column=0, row=2)
+
+        self.bind("<<ValueEvent>>", self.update_value)
+
+    def update_value(self, event):
+        global value
+        mtx.acquire()
+        v = value
+        mtx.release()
+        if v is not None:
+            self.textbox.update(v.text_dump())
+            if v.decode:
+                image = Image.open(io.BytesIO(v.decode.image_data))
+                width, height = image.size
+                photo_image = ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
+                self.img_label.configure(image=photo_image)
+                self.img_label.image = photo_image
+            else:
+                self.img_label.configure(image=None)
+                self.img_label.image = None
 
 
-def update_value(event):
-    v = None
-    mtx.acquire()
-    v = value
-    mtx.release()
-    if v is not None:
-        textbox.update(value.text_dump())
-        if value.decode:
-            image = Image.open(io.BytesIO(value.decode.image_data))
-            width, height = image.size
-            photo_image = ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
-            img_label.configure(image=photo_image)
-            img_label.image = photo_image
-        else:
-            img_label.configure(image=None)
-            img_label.image = None
+def main():
+    ctk.set_appearance_mode("System")
+    ctk.set_default_color_theme("blue")
 
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+    gui = GUI()
+    barcode_thread = BarcodeThread(gui)
+    barcode_thread.start()
+    gui.mainloop()
 
-x = BarcodeThread()
 
-x.start()
+if __name__ == "__main__":
+    main()
 
-root = ctk.CTk()
-root.geometry("640x480")
-
-root.grid_columnconfigure(0, weight=1)
-root.grid_rowconfigure(0, weight=1)
-
-frm = ctk.CTkFrame(root)
-frm.grid(row=0, column=0, sticky="nsew")
-frm.grid_columnconfigure(0, weight=1)
-frm.grid_rowconfigure(0, weight=1)
-label = ctk.CTkLabel(frm, text=value)
-root.bind('<<ValueEvent>>', update_value)
-label.grid(column=0, row=0)
-textbox = ReadOnlyTextbox(frm)
-textbox_font = ctk.CTkFont(family="monospace")
-textbox.grid(column=0, row=0, sticky='NESW')
-textbox.configure(state=DISABLED, font=textbox_font)
-img_frame = ctk.CTkFrame(frm)
-img_frame.grid()
-img_frame.grid(column=0, row=1)
-img_label = ctk.CTkLabel(img_frame, text="")
-img_label.grid(column=0, row=0, sticky="NESW")
-ctk.CTkButton(frm, text="Quit", command=root.destroy).grid(column=0, row=2)
-root.mainloop()
